@@ -79,6 +79,7 @@
     // events
     var onRowCountChanged = new Slick.Event();
     var onRowsChanged = new Slick.Event();
+    var onRowsOrCountChanged = new Slick.Event();
     var onPagingInfoChanged = new Slick.Event();
 
     options = $.extend(true, {}, defaults, options);
@@ -218,7 +219,7 @@
     function getFilter(){
       return filter;
     }
-    
+
     function setFilter(filterFn) {
       filter = filterFn;
       if (options.inlineFilters) {
@@ -355,10 +356,38 @@
     }
 
     function updateItem(id, item) {
-      if (idxById[id] === undefined || id !== item[idProperty]) {
-        throw new Error("Invalid or non-matching id");
+      // see also https://github.com/mleibman/SlickGrid/issues/1082
+      if (idxById[id] === undefined) {
+        throw new Error("Invalid id");
+      }
+
+      // What if the specified item also has an updated idProperty?
+      // Then we'll have to update the index as well, and possibly the `updated` cache too.
+      if (id !== item[idProperty]) {
+        // make sure the new id is unique:
+        var newId = item[idProperty];
+        if (newId == null) {
+          throw new Error("Cannot update item to associate with a null id");
+        }
+        if (idxById[newId] !== undefined) {
+          throw new Error("Cannot update item to associate with a non-unique id");
+        }
+        idxById[newId] = idxById[id];
+        delete idxById[id];
+
+        // Also update the `updated` hashtable/markercache? Yes, `recalc()` inside `refresh()` needs that one!
+        if (updated && updated[id]) {
+          delete updated[id];
+        }
+
+        // Also update the row indexes? no need since the `refresh()`, further down, blows away the `rowsById[]` cache!
+
+        id = newId;
       }
       items[idxById[id]] = item;
+
+      // Also update the rows? no need since the `refresh()`, further down, blows away the `rows[]` cache and recalculates it via `recalc()`!
+
       if (!updated) {
         updated = {};
       }
@@ -428,7 +457,7 @@
       }
       return low;
     }
-      
+
     function getLength() {
       return rows.length;
     }
@@ -582,7 +611,7 @@
           group = groups[i];
           group.groups = extractGroups(group.rows, group);
         }
-      }      
+      }
 
       groups.sort(groupingInfos[level].comparer);
 
@@ -632,7 +661,7 @@
       level = level || 0;
       var gi = groupingInfos[level];
       var groupCollapsed = gi.collapsed;
-      var toggledGroups = toggledGroupsByLevel[level];      
+      var toggledGroups = toggledGroupsByLevel[level];
       var idx = groups.length, g;
       while (idx--) {
         g = groups[idx];
@@ -654,7 +683,7 @@
         g.collapsed = groupCollapsed ^ toggledGroups[g.groupingKey];
         g.title = gi.formatter ? gi.formatter(g) : g.value;
       }
-    } 
+    }
 
     function flattenGroupedRows(groups, level) {
       level = level || 0;
@@ -934,10 +963,14 @@
         onPagingInfoChanged.notify(getPagingInfo(), null, self);
       }
       if (countBefore !== rows.length) {
-        onRowCountChanged.notify({previous: countBefore, current: rows.length, dataView: self}, null, self);
+        onRowCountChanged.notify({previous: countBefore, current: rows.length, dataView: self, callingOnRowsChanged: (diff.length > 0)}, null, self);
       }
       if (diff.length > 0) {
-        onRowsChanged.notify({rows: diff, dataView: self}, null, self);
+        onRowsChanged.notify({rows: diff, dataView: self, calledOnRowCountChanged: (countBefore !== rows.length)}, null, self);
+      }
+      if (countBefore !== rows.length || diff.length > 0) {
+        onRowsOrCountChanged.notify({rowsDiff: diff, previousRowCount: countBefore, currentRowCount: rows.length,
+          rowCountChanged: countBefore !== rows.length, rowsChanged: diff.length > 0, dataView: self}, null, self);
       }
     }
 
@@ -985,7 +1018,7 @@
           inHandler = true;
           var selectedRows = self.mapIdsToRows(selectedRowIds);
           if (!preserveHidden) {
-            setSelectedRowIds(self.mapRowsToIds(selectedRows));       
+            setSelectedRowIds(self.mapRowsToIds(selectedRows));
           }
           grid.setSelectedRows(selectedRows);
           inHandler = false;
@@ -1005,9 +1038,7 @@
         }
       });
 
-      this.onRowsChanged.subscribe(update);
-
-      this.onRowCountChanged.subscribe(update);
+      this.onRowsOrCountChanged.subscribe(update);
 
       return onSelectedRowIdsChanged;
     }
@@ -1051,14 +1082,11 @@
           storeCellCssStyles(args.hash);
         } else {
           grid.onCellCssStylesChanged.unsubscribe(styleChanged);
-          self.onRowsChanged.unsubscribe(update);
-          self.onRowCountChanged.unsubscribe(update);          
+          self.onRowsOrCountChanged.unsubscribe(update);
         }
       });
 
-      this.onRowsChanged.subscribe(update);
-
-      this.onRowCountChanged.subscribe(update);
+      this.onRowsOrCountChanged.subscribe(update);
     }
 
     $.extend(this, {
@@ -1112,6 +1140,7 @@
       // events
       "onRowCountChanged": onRowCountChanged,
       "onRowsChanged": onRowsChanged,
+      "onRowsOrCountChanged": onRowsOrCountChanged,
       "onPagingInfoChanged": onPagingInfoChanged
     });
   }

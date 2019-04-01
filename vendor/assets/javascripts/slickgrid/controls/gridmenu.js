@@ -19,7 +19,7 @@
    *      iconCssClass: "fa fa-bars",                 // you can provide iconImage OR iconCssClass
    *      leaveOpen: false,                           // do we want to leave the Grid Menu open after a command execution? (false by default)
    *      menuWidth: 18,                              // width that will be use to resize the column header container (18 by default)
-   *      resizeOnShowHeaderRow: true,                // true by default
+   *      resizeOnShowHeaderRow: false,               // false by default
    *
    *      // the last 2 checkboxes titles
    *      hideForceFitButton: false,                  // show/hide checkbox near the end "Force Fit Columns"
@@ -41,6 +41,7 @@
    *
    * Available custom menu item options:
    *    title:        Menu item text.
+   *    divider:      Whether the current item is a divider, not an actual command.
    *    disabled:     Whether the item is disabled.
    *    tooltip:      Item tooltip.
    *    command:      A command identifier to be passed to the onCommand event handlers.
@@ -94,10 +95,13 @@
 
     function SlickGridMenu(columns, grid, options) {
       var _grid = grid;
+      var _gridOptions;
+      var _gridUid = (grid && grid.getUID) ? grid.getUID() : '';
       var _isMenuOpen = false;
       var _options = options;
       var _self = this;
       var $list;
+      var $button;
       var $menu;
       var columnCheckboxes;
       var _defaults = {
@@ -111,18 +115,27 @@
       };
 
       function init(grid) {
+        _gridOptions = grid.getOptions();
         var gridMenuWidth = (_options.gridMenu && _options.gridMenu.menuWidth) || _defaults.menuWidth;
-        var $header = $('.slick-header');
+        var $header;
+        if (_gridOptions && _gridOptions.frozenColumn && _gridOptions.frozenColumn > 0 ) {
+          $header = $('.' + _gridUid + ' .slick-header-right');
+        } else {
+          $header = $('.' + _gridUid + ' .slick-header-left');
+        }
         $header.attr('style', 'width: calc(100% - ' + gridMenuWidth +'px)');
+
+        // subscribe to the grid, when it's destroyed, we should also destroy the Grid Menu
+        grid.onBeforeDestroy.subscribe(destroy);
 
         // if header row is enabled, we need to resize it's width also
         var enableResizeHeaderRow = (_options.gridMenu && _options.gridMenu.resizeOnShowHeaderRow != undefined) ? _options.gridMenu.resizeOnShowHeaderRow : _defaults.resizeOnShowHeaderRow;
-        if(enableResizeHeaderRow) {
-          var $headerrow = $('.slick-headerrow');
+        if(enableResizeHeaderRow && _options.showHeaderRow) {
+          var $headerrow = $('.' + _gridUid + '.slick-headerrow');
           $headerrow.attr('style', 'width: calc(100% - ' + gridMenuWidth +'px)');
         }
 
-        var $button = $('<button class="slick-gridmenu-button"/>');
+        $button = $('<button class="slick-gridmenu-button"/>');
         if (_options.gridMenu && _options.gridMenu.iconCssClass) {
           $button.addClass(_options.gridMenu.iconCssClass);
         } else {
@@ -132,7 +145,7 @@
         }
         $button.insertBefore($header);
 
-        $menu = $('<div class="slick-gridmenu" style="display: none" />').appendTo(document.body);
+        $menu = $('<div class="slick-gridmenu ' + _gridUid + '" style="display: none" />').appendTo(document.body);
         var $close = $('<button type="button" class="close" data-dismiss="slick-gridmenu" aria-label="Close"><span class="close" aria-hidden="true">&times;</span></button>').appendTo($menu);
 
         var $customMenu = $('<div class="slick-gridmenu-custom" />');
@@ -148,13 +161,13 @@
         populateColumnPicker();
 
         // Hide the menu on outside click.
-        $(document.body).on("mousedown", handleBodyMouseDown);
+        $(document.body).on("mousedown." + _gridUid, handleBodyMouseDown);
 
         // destroy the picker if user leaves the page
         $(window).on("beforeunload", destroy);
 
         // add on click handler for the Grid Menu itself
-        $button.on("click", showGridMenu);
+        $button.on("click." + _gridUid, showGridMenu);
       }
 
       function destroy() {
@@ -163,9 +176,11 @@
         _self.onCommand.unsubscribe();
         _self.onColumnsChanged.unsubscribe();
         _grid.onColumnsReordered.unsubscribe(updateColumnOrder);
-        $(document.body).off("mousedown", handleBodyMouseDown);
-        $("div.slick-gridmenu").hide(_options.fadeSpeed);
+        _grid.onBeforeDestroy.unsubscribe();
+        $(document.body).off("mousedown." + _gridUid, handleBodyMouseDown);
+        $("div.slick-gridmenu." + _gridUid).hide(_options.fadeSpeed);
         $menu.remove();
+        $button.remove();
       }
 
       function populateCustomMenus(options, $customMenu) {
@@ -184,6 +199,11 @@
 
           if (item.disabled) {
             $li.addClass("slick-gridmenu-item-disabled");
+          }
+
+          if (item.divider) {
+            $li.addClass("slick-gridmenu-item-divider");
+            continue;
           }
 
           if (item.tooltip) {
@@ -295,13 +315,12 @@
             .fadeIn(_options.fadeSpeed);
 
         $list.appendTo($menu);
+        _isMenuOpen = true;
       }
 
       function handleBodyMouseDown(e) {
         if (($menu && $menu[0] != e.target && !$.contains($menu[0], e.target) && _isMenuOpen) || e.target.className == "close") {
           hideMenu(e);
-        } else {
-          _isMenuOpen = true;
         }
       }
 
@@ -309,7 +328,7 @@
         var command = $(this).data("command");
         var item = $(this).data("item");
 
-        if (item.disabled) {
+        if (item.disabled || item.divider) {
           return;
         }
 
