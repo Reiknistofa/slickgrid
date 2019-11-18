@@ -10,19 +10,21 @@
  * AVAILABLE ROW DETAIL OPTIONS:
  *    cssClass:               A CSS class to be added to the row detail
  *    expandedClass:          Extra classes to be added to the expanded Toggle
+ *    expandableOverride:     callback method that user can override the default behavior of making every row an expandable row (the logic to show or not the expandable icon).
  *    collapsedClass:         Extra classes to be added to the collapse Toggle
  *    loadOnce:               Defaults to false, when set to True it will load the data once and then reuse it.
  *    preTemplate:            Template that will be used before the async process (typically used to show a spinner/loading)
  *    postTemplate:           Template that will be loaded once the async function finishes
  *    process:                Async server function call
  *    panelRows:              Row count to use for the template panel
+ *    singleRowExpand:        Defaults to false, limit expanded row to 1 at a time.
  *    useRowClick:            Boolean flag, when True will open the row detail on a row click (from any column), default to False
  *    keyPrefix:              Defaults to '_', prefix used for all the plugin metadata added to the item object (meta e.g.: padding, collapsed, parent)
  *    collapseAllOnSort:      Defaults to true, which will collapse all row detail views when user calls a sort. Unless user implements a sort to deal with padding
  *    saveDetailViewOnScroll: Defaults to true, which will save the row detail view in a cache when it detects that it will become out of the viewport buffer
  *    useSimpleViewportCalc:  Defaults to false, which will use simplified calculation of out or back of viewport visibility
  *
- * AVAILABLE PUBLIC OPTIONS:
+ * AVAILABLE PUBLIC METHODS:
  *    init:                 initiliaze the plugin
  *    expandableOverride:   callback method that user can override the default behavior of making every row an expandable row (the logic to show or not the expandable icon).
  *    destroy:              destroy the plugin and it's events
@@ -92,6 +94,7 @@
     var _grid;
     var _gridOptions;
     var _gridUid;
+    var _dataView;
     var _expandableOverride = null;
     var _self = this;
     var _lastRange = null;
@@ -108,6 +111,7 @@
       loadOnce: false,
       collapseAllOnSort: true,
       saveDetailViewOnScroll: true,
+      singleRowExpand: false,
       useSimpleViewportCalc: false,
       alwaysRenderColumn: true,
       toolTip: '',
@@ -118,6 +122,11 @@
     var _gridRowBuffer = 0;
     var _rowIdsOutOfViewport = [];
     var _options = $.extend(true, {}, _defaults, options);
+
+    // user could override the expandable icon logic from within the options or after instantiating the plugin
+    if(typeof _options.expandableOverride === 'function') {
+      expandableOverride(_options.expandableOverride);
+    }
 
     /**
      * Initialize the plugin, which requires user to pass the SlickGrid Grid object
@@ -192,6 +201,9 @@
     /** set or change some of the plugin options */
     function setOptions(options) {
       _options = $.extend(true, {}, _options, options);
+      if (_options && _options.singleRowExpand) {
+        collapseAll();
+      }
     }
 
     /** Find a value in an array and return the index when (or -1 when not found) */
@@ -453,6 +465,10 @@
 
     /** Expand a row given the dataview item that is to be expanded */
     function expandDetailView(item) {
+      if (_options && _options.singleRowExpand) {
+        collapseAll();
+      }
+
       item[_keyPrefix + 'collapsed'] = false;
       _expandedRows.push(item);
 
@@ -499,7 +515,7 @@
     function subscribeToOnAsyncResponse() {
       _self.onAsyncResponse.subscribe(function (e, args) {
         if (!args || (!args.item && !args.itemDetail)) {
-          throw 'Slick.RowDetailView plugin requires the onAsyncResponse() to supply "args.item" property.'
+          throw 'Slick.RowDetailView plugin requires the onAsyncResponse() to supply "args.item" property.';
         }
 
         // we accept item/itemDetail, just get the one which has data
@@ -554,7 +570,7 @@
       item[_keyPrefix + 'offset'] = offset;
 
       return item;
-    }
+    };
 
     //////////////////////////////////////////////////////////////
     // create the detail ctr node. this belongs to the dev & can be custom-styled as per
@@ -596,20 +612,20 @@
     }
 
     /** The Formatter of the toggling icon of the Row Detail */
-    function detailSelectionFormatter(row, cell, value, columnDef, dataContext) {
+    function detailSelectionFormatter(row, cell, value, columnDef, dataContext, grid) {
       if (!checkExpandableOverride(row, dataContext, grid)) {
         return null;
       } else {
         if (dataContext[_keyPrefix + 'collapsed'] == undefined) {
-          dataContext[_keyPrefix + 'collapsed'] = true,
-            dataContext[_keyPrefix + 'sizePadding'] = 0,     //the required number of pading rows
-            dataContext[_keyPrefix + 'height'] = 0,     //the actual height in pixels of the detail field
-            dataContext[_keyPrefix + 'isPadding'] = false,
-            dataContext[_keyPrefix + 'parent'] = undefined,
-            dataContext[_keyPrefix + 'offset'] = 0
+          dataContext[_keyPrefix + 'collapsed'] = true;
+          dataContext[_keyPrefix + 'sizePadding'] = 0;     //the required number of pading rows
+          dataContext[_keyPrefix + 'height'] = 0;     //the actual height in pixels of the detail field
+          dataContext[_keyPrefix + 'isPadding'] = false;
+          dataContext[_keyPrefix + 'parent'] = undefined;
+          dataContext[_keyPrefix + 'offset'] = 0;
         }
 
-        if (dataContext[_keyPrefix + 'isPadding'] == true) {
+        if (dataContext[_keyPrefix + 'isPadding']) {
           // render nothing
         }
         else if (dataContext[_keyPrefix + 'collapsed']) {
@@ -645,7 +661,7 @@
           html.push('<div class="dynamic-cell-detail cellDetailView_', dataContext.id, '" ');   //apply custom css to detail
           html.push('style="height:', outterHeight, 'px;'); //set total height of padding
           html.push('top:', rowHeight, 'px">');             //shift detail below 1st row
-          html.push('<div class="detail-container detailViewContainer_', dataContext.id, '" style="min-height:' + dataContext[_keyPrefix + 'height'] + 'px">'); //sub ctr for custom styling
+          html.push('<div class="detail-container detailViewContainer_', dataContext.id, '">'); //sub ctr for custom styling
           html.push('<div class="innerDetailView_', dataContext.id, '">', dataContext[_keyPrefix + 'detailContent'], '</div></div>');
           // &omit a final closing detail container </div> that would come next
 

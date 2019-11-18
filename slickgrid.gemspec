@@ -1,6 +1,6 @@
 Gem::Specification.new do |gem|
   gem.name          = "slickgrid"
-  gem.version       = "2.4.5"
+  gem.version       = "2.4.14"
   gem.authors       = ["Erlingur Þorsteinsson"]
   gem.email         = ["erlingur@rsf.is"]
   gem.description   = %q{SlickGrid (6pac fork) gem for Rails}

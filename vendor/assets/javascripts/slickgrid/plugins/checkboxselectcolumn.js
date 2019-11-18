@@ -26,6 +26,11 @@
 
     var _options = $.extend(true, {}, _defaults, options);
 
+    // user could override the checkbox icon logic from within the options or after instantiating the plugin
+    if(typeof _options.selectableOverride === 'function') {
+      selectableOverride(_options.selectableOverride);
+    }
+
     function init(grid) {
       _grid = grid;
       _handler
@@ -37,7 +42,7 @@
         addCheckboxToFilterHeaderRow(grid);
       }
       if (!_options.hideInColumnTitleRow) {
-        _handler.subscribe(_grid.onHeaderClick, handleHeaderClick)
+        _handler.subscribe(_grid.onHeaderClick, handleHeaderClick);
       }
     }
 
@@ -83,7 +88,7 @@
 
     function handleSelectedRowsChanged(e, args) {
       var selectedRows = _grid.getSelectedRows();
-      var lookup = {}, row, i;
+      var lookup = {}, row, i, k;
       var disabledCount = 0;
       if (typeof _selectableOverride === 'function') {
         for (k = 0; k < _grid.getDataLength(); k++) {
@@ -173,7 +178,7 @@
 
       if (_selectedRowsLookup[row]) {
         _grid.setSelectedRows($.grep(_grid.getSelectedRows(), function (n) {
-          return n != row
+          return n != row;
         }));
       } else {
         _grid.setSelectedRows(_grid.getSelectedRows().concat(row));
@@ -199,7 +204,7 @@
         }
       }
       _grid.setSelectedRows($.grep(_grid.getSelectedRows(), function (n) {
-        return removeRows.indexOf(n) < 0
+        return removeRows.indexOf(n) < 0;
       }));
     }
 
@@ -267,7 +272,7 @@
           $("<span id='filter-checkbox-selectall-container'><input id='header-filter-selector" + _selectAll_UID + "' type='checkbox'><label for='header-filter-selector" + _selectAll_UID + "'></label></span>")
             .appendTo(args.node)
             .on('click', function (evnt) {
-              handleHeaderClick(evnt, args)
+              handleHeaderClick(evnt, args);
             });
         }
       });

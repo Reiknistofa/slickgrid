@@ -7,7 +7,8 @@
           Avg: AvgAggregator,
           Min: MinAggregator,
           Max: MaxAggregator,
-          Sum: SumAggregator
+          Sum: SumAggregator,
+          Count: CountAggregator
         }
       }
     }
@@ -186,7 +187,7 @@
       sortComparer = null;
       var oldToString = Object.prototype.toString;
       Object.prototype.toString = (typeof field == "function") ? field : function () {
-        return this[field]
+        return this[field];
       };
       // an extra reversal for descending sort keeps the sort stable
       // (assuming a stable native sort implementation, which isn't true in some cases)
@@ -708,7 +709,9 @@
     }
 
     function getFunctionInfo(fn) {
-      var fnRegex = /^function[^(]*\(([^)]*)\)\s*{([\s\S]*)}$/;
+      var fnStr = fn.toString();
+      var usingEs5 = fnStr.indexOf('function') >= 0; // with ES6, the word function is not present
+      var fnRegex = usingEs5 ? /^function[^(]*\(([^)]*)\)\s*{([\s\S]*)}$/ : /^[^(]*\(([^)]*)\)\s*{([\s\S]*)}$/;
       var matches = fn.toString().match(fnRegex);
       return {
         params: matches[1].split(","),
@@ -717,16 +720,23 @@
     }
 
     function compileAccumulatorLoop(aggregator) {
-      var accumulatorInfo = getFunctionInfo(aggregator.accumulate);
-      var fn = new Function(
-          "_items",
-          "for (var " + accumulatorInfo.params[0] + ", _i=0, _il=_items.length; _i<_il; _i++) {" +
-              accumulatorInfo.params[0] + " = _items[_i]; " +
-              accumulatorInfo.body +
-          "}"
-      );
-      fn.displayName = fn.name = "compiledAccumulatorLoop";
-      return fn;
+      if(aggregator.accumulate) {
+        var accumulatorInfo = getFunctionInfo(aggregator.accumulate);
+        var fn = new Function(
+            "_items",
+            "for (var " + accumulatorInfo.params[0] + ", _i=0, _il=_items.length; _i<_il; _i++) {" +
+                accumulatorInfo.params[0] + " = _items[_i]; " +
+                accumulatorInfo.body +
+            "}"
+        );
+        var fnName = "compiledAccumulatorLoop";
+        fn.displayName = fnName;
+        fn.name = setFunctionName(fn, fnName);
+        return fn;  
+      } else {
+        return function noAccumulator() {
+        }
+      }
     }
 
     function compileFilter() {
@@ -762,7 +772,9 @@
       tpl = tpl.replace(/\$args\$/gi, filterInfo.params[1]);
 
       var fn = new Function("_items,_args", tpl);
-      fn.displayName = fn.name = "compiledFilter";
+      var fnName = "compiledFilter";
+      fn.displayName = fnName;
+      fn.name = setFunctionName(fn, fnName);
       return fn;
     }
 
@@ -803,8 +815,28 @@
       tpl = tpl.replace(/\$args\$/gi, filterInfo.params[1]);
 
       var fn = new Function("_items,_args,_cache", tpl);
-      fn.displayName = fn.name = "compiledFilterWithCaching";
+      var fnName = "compiledFilterWithCaching";
+      fn.displayName = fnName;
+      fn.name = setFunctionName(fn, fnName);
       return fn;
+    }
+
+    /**
+     * In ES5 we could set the function name on the fly but in ES6 this is forbidden and we need to set it through differently
+     * We can use Object.defineProperty and set it the property to writable, see MDN for reference
+     * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/defineProperty
+     * @param {string} fn 
+     * @param {string} fnName 
+     */
+    function setFunctionName(fn, fnName) {
+      try {
+        Object.defineProperty(fn, 'name', {
+          writable: true,
+          value: fnName
+        });
+      } catch(err) {
+        fn.name = fnName;
+      }
     }
 
     function uncompiledFilter(items, args) {
@@ -873,7 +905,7 @@
 
     function getRowDiffs(rows, newRows) {
       var item, r, eitherIsNonData, diff = [];
-      var from = 0, to = newRows.length;
+      var from = 0, to = Math.max(newRows.length,rows.length);
 
       if (refreshHints && refreshHints.ignoreDiffsBefore) {
         from = Math.max(0,
@@ -892,7 +924,7 @@
           item = newRows[i];
           r = rows[i];
 
-          if ((groupingInfos.length && (eitherIsNonData = (item.__nonDataRow) || (r.__nonDataRow)) &&
+          if (!item || (groupingInfos.length && (eitherIsNonData = (item.__nonDataRow) || (r.__nonDataRow)) &&
               item.__group !== r.__group ||
               item.__group && !item.equals(r))
               || (eitherIsNonData &&
@@ -969,8 +1001,10 @@
         onRowsChanged.notify({rows: diff, dataView: self, calledOnRowCountChanged: (countBefore !== rows.length)}, null, self);
       }
       if (countBefore !== rows.length || diff.length > 0) {
-        onRowsOrCountChanged.notify({rowsDiff: diff, previousRowCount: countBefore, currentRowCount: rows.length,
-          rowCountChanged: countBefore !== rows.length, rowsChanged: diff.length > 0, dataView: self}, null, self);
+        onRowsOrCountChanged.notify({
+          rowsDiff: diff, previousRowCount: countBefore, currentRowCount: rows.length,
+          rowCountChanged: countBefore !== rows.length, rowsChanged: diff.length > 0, dataView: self
+        }, null, self);
       }
     }
 
@@ -1167,7 +1201,7 @@
       if (!groupTotals.avg) {
         groupTotals.avg = {};
       }
-      if (this.nonNullCount_ != 0) {
+      if (this.nonNullCount_ !== 0) {
         groupTotals.avg[this.field_] = this.sum_ / this.nonNullCount_;
       }
     };
@@ -1194,7 +1228,7 @@
         groupTotals.min = {};
       }
       groupTotals.min[this.field_] = this.min_;
-    }
+    };
   }
 
   function MaxAggregator(field) {
@@ -1218,7 +1252,7 @@
         groupTotals.max = {};
       }
       groupTotals.max[this.field_] = this.max_;
-    }
+    };
   }
 
   function SumAggregator(field) {
@@ -1240,9 +1274,23 @@
         groupTotals.sum = {};
       }
       groupTotals.sum[this.field_] = this.sum_;
-    }
+    };
   }
 
+  function CountAggregator(field) {
+    this.field_ = field;
+
+    this.init = function () {
+    };
+
+    this.storeResult = function (groupTotals) {
+      if (!groupTotals.count) {
+        groupTotals.count = {};
+      }
+      groupTotals.count[this.field_] = groupTotals.group.rows.length;
+    };
+  }
+  
   // TODO:  add more built-in aggregators
   // TODO:  merge common aggregators in one to prevent needles iterating
 
